@@ -2,24 +2,18 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
 @Schema({ timestamps: true })
-export class Task extends Document {
+export class SubTask extends Document {
   @Prop({ required: true, unique: true })
-  id: number;
+  sid: number;
 
   @Prop({ required: true })
-  uid: string;
+  taskid: number;
 
   @Prop({ required: true })
   title: string;
 
   @Prop({ default: 'pending' })
   status: string;
-
-  @Prop({ required: true })
-  startTime: Date;
-
-  @Prop({ required: true })
-  deadline: Date;
 }
 
-export const TaskSchema = SchemaFactory.createForClass(Task);
+export const SubTaskSchema = SchemaFactory.createForClass(SubTask);

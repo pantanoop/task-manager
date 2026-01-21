@@ -9,7 +9,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { SubTaskDto } from './subtask.dto';
-import { Transform, Type } from 'class-transformer';
+import { Type } from 'class-transformer';
 
 export class CreateTaskDto {
   @IsNumber({}, { message: 'id must be a number' })
@@ -27,14 +27,6 @@ export class CreateTaskDto {
   @IsString({ message: 'user must be a string' })
   @IsOptional()
   status: string;
-
-  //   @IsString({ message: 'user must be a string' })
-  //   @IsNotEmpty()
-  //   startTime: string;
-
-  //   @IsString({ message: 'user must be a string' })
-  //   @IsNotEmpty()
-  //   deadline: string;
 
   @Type(() => Date)
   @IsNotEmpty()

@@ -1,17 +1,21 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  HttpException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, HttpException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
-import { tasks } from './constants/tasks';
-import { subtasks } from './constants/subatasks';
+import { Task } from './schemas/task.schema';
+import { SubTask } from './schemas/subtask.schema';
+import { users } from './constants/users';
 
 @Injectable()
 export class TaskService {
-  create(createTaskDto: CreateTaskDto) {
+  constructor(
+    @InjectModel(Task.name) private taskModel: Model<Task>,
+    @InjectModel(SubTask.name) private subTaskModel: Model<SubTask>,
+  ) {}
+
+  async create(createTaskDto: CreateTaskDto) {
     const {
       title,
       uid,
@@ -20,29 +24,15 @@ export class TaskService {
       deadline,
     } = createTaskDto;
 
-    const existing = tasks.find(
-      (t) => t.title.toLowerCase() === title.toLowerCase(),
-    );
-    // console.log(existing);
+    const existing = await this.taskModel.findOne({
+      title: new RegExp(`^${title}$`, 'i'),
+    });
+
+    const userExisting = users.some((u) => u.uid === uid);
+
     if (existing) {
-      console.log('hjvchcbhbc');
       throw new HttpException({ message: 'TASK TITLE ALREADY EXISTS' }, 400);
     }
-
-    // if (existing) {
-    //   console.log('hjvchcbhbc');
-    //   throw new HttpException ('TASK TITLE ALREADY EXISTS');
-    // }
-    const taskId = Date.now();
-
-    const newTask = {
-      id: taskId,
-      uid,
-      title,
-      status: 'pending',
-      startTime,
-      deadline,
-    };
 
     if (startTime > deadline) {
       throw new HttpException(
@@ -51,102 +41,127 @@ export class TaskService {
       );
     }
 
-    tasks.push(newTask);
+    if (!userExisting) {
+      throw new HttpException({ message: 'user is not registered' }, 400);
+    }
+    const taskId = Date.now();
 
-    if (dtoSubtasks && dtoSubtasks.length > 0) {
-      dtoSubtasks.forEach((s) => {
-        const newSubtask = {
+    const newTask = await this.taskModel.create({
+      id: taskId,
+      uid,
+      title,
+      status: 'pending',
+      startTime,
+      deadline,
+    });
+
+    if (dtoSubtasks?.length) {
+      await this.subTaskModel.insertMany(
+        dtoSubtasks.map((s) => ({
           sid: Date.now() + Math.floor(Math.random() * 1000),
           taskid: taskId,
           title: s.title,
           status: 'pending',
-        };
-        subtasks.push(newSubtask);
-      });
+        })),
+      );
     }
-    console.log(newTask);
+
     return newTask;
   }
 
-  findAll() {
-    return tasks.map((task) => ({
+  async findAll(query: { limit?: number; page?: number }) {
+    const { limit, page } = query;
+
+    const tasks = await this.taskModel.find().lean();
+    const subtasks = await this.subTaskModel.find().lean();
+
+    const tasksWithSubtasks = tasks.map((task) => ({
       ...task,
       subtasks: subtasks.filter((s) => s.taskid === task.id),
     }));
+
+    if (!limit || !page) {
+      return tasksWithSubtasks;
+    }
+
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+
+    return tasksWithSubtasks.slice(startIndex, endIndex);
   }
 
-  findOne(id: number) {
-    const task = tasks.find((t) => t.id === id);
+  async findOne(id: number) {
+    const task = await this.taskModel.findOne({ id }).lean();
     if (!task) throw new NotFoundException('Task not found');
 
-    return {
-      ...task,
-      subtasks: subtasks.filter((s) => s.taskid === id),
-    };
+    const subtasks = await this.subTaskModel.find({
+      taskid: id,
+    });
+
+    return { ...task, subtasks };
   }
 
-  update(id: number, updateTaskDto: UpdateTaskDto) {
-    const taskIndex = tasks.findIndex((t) => t.id === id);
-    if (taskIndex === -1) throw new NotFoundException('Task not found');
+  async update(id: number, updateTaskDto: UpdateTaskDto) {
+    const task = await this.taskModel.findOneAndUpdate({ id }, updateTaskDto, {
+      new: true,
+    });
 
-    tasks[taskIndex] = {
-      ...tasks[taskIndex],
-      ...updateTaskDto,
-    };
-
-    return tasks[taskIndex];
+    if (!task) throw new NotFoundException('Task not found');
+    return task;
   }
 
-  remove(id: number) {
-    const index = tasks.findIndex((t) => t.id === id);
-    if (index === -1) throw new NotFoundException('Task not found');
+  async remove(id: number) {
+    const task = await this.taskModel.findOne({ id });
+    if (!task) throw new NotFoundException('Task not found');
 
-    const deletedTask = tasks[index];
+    await this.taskModel.deleteOne({ id });
+    await this.subTaskModel.deleteMany({ taskid: id });
 
-    tasks.splice(index, 1);
-
-    for (let i = 0; i <= subtasks.length - 1; i--) {
-      if (subtasks[i].taskid === id) {
-        subtasks.splice(i, 1);
-      }
-    }
-
-    return deletedTask;
+    return task;
   }
 
-  updateTocompleted(id: number) {
-    const taskIndex = tasks.findIndex((t) => t.id === id);
-    if (taskIndex === -1) throw new NotFoundException('Task not found');
-    let isPending = tasks[taskIndex].status === 'pending' ? true : false;
+  async updateTocompleted(id: number) {
+    const task = await this.taskModel.findOne({ id });
+    if (!task) throw new NotFoundException('Task not found');
+
+    const isPending = task.status === 'pending';
+    const isFulfilled = task.status === 'completed';
     if (isPending) {
       throw new HttpException(
-        { message: 'can not go fulfilled go to in process ' },
-        400,
-      );
-    }
-    let SubtaskPending = subtasks.find(
-      (s) => s.taskid === id && s.status == 'pending',
-    );
-    let isSubtaskPending = SubtaskPending ? true : false;
-    if (isSubtaskPending) {
-      throw new HttpException(
-        { message: 'Tcomplete your subtasks first' },
+        { message: 'can not go fulfilled go to in-process ' },
         400,
       );
     }
 
-    tasks[taskIndex] = {
-      ...tasks[taskIndex],
-      status: 'completed',
-    };
-    return tasks[taskIndex];
+    if (isFulfilled) {
+      throw new HttpException({ message: 'already fulfilled task' }, 400);
+    }
+
+    const subtaskPending = await this.subTaskModel.findOne({
+      taskid: id,
+      status: 'pending',
+    });
+
+    if (subtaskPending) {
+      throw new HttpException(
+        {
+          message: 'complete your subtasks first to mark the task as completed',
+        },
+        400,
+      );
+    }
+
+    task.status = 'completed';
+    return task.save();
   }
 
-  updateTopending(id: number) {
-    const taskIndex = tasks.findIndex((t) => t.id === id);
-    if (taskIndex === -1) throw new NotFoundException('Task not found');
-    let isFulfilled = tasks[taskIndex].status === 'completed' ? true : false;
-    let isPending = tasks[taskIndex].status === 'pending' ? true : false;
+  async updateTopending(id: number) {
+    const task = await this.taskModel.findOne({ id });
+    if (!task) throw new NotFoundException('Task not found');
+
+    const isFulfilled = task.status === 'completed';
+    const isPending = task.status === 'pending';
+
     if (isFulfilled) {
       throw new HttpException(
         { message: 'task is already fulfilled cant be pending' },
@@ -154,70 +169,90 @@ export class TaskService {
       );
     }
     if (isPending) {
-      throw new HttpException({ message: 'already pending' }, 400);
+      throw new HttpException({ message: 'task already pending' }, 400);
     }
-    tasks[taskIndex] = {
-      ...tasks[taskIndex],
-      status: 'pending',
-    };
-    return tasks[taskIndex];
-  }
-  updateToInprocess(id: number) {
-    const taskIndex = tasks.findIndex((t) => t.id === id);
-    if (taskIndex === -1) throw new NotFoundException('Task not found');
 
-    tasks[taskIndex] = {
-      ...tasks[taskIndex],
-      status: 'in process',
-    };
-    return tasks[taskIndex];
+    task.status = 'pending';
+    return task.save();
   }
-  updateTopendingSubtask(id: number) {
-    const taskIndex = subtasks.findIndex((t) => t.sid === id);
-    if (taskIndex === -1) throw new NotFoundException('Task not found');
-    let isFulfilled = subtasks[taskIndex].status === 'completed' ? true : false;
-    let isPending = subtasks[taskIndex].status === 'pending' ? true : false;
+
+  async updateToInprocess(id: number) {
+    const task = await this.taskModel.findOne({ id });
+    if (!task) throw new NotFoundException('Task not found');
+    const isInProcess = task.status === 'in process';
+
+    if (isInProcess) {
+      throw new HttpException(
+        {
+          message:
+            'task is already in-process if you did complete all your subtasks you can mark this tasks as completed',
+        },
+        400,
+      );
+    }
+
+    task.status = 'in process';
+    return task.save();
+  }
+
+  async updateTopendingSubtask(sid: number) {
+    const subtask = await this.subTaskModel.findOne({ sid });
+    if (!subtask) throw new NotFoundException('Task not found');
+
+    const isFulfilled = subtask.status === 'completed';
+    const isPending = subtask.status === 'pending';
+
     if (isFulfilled) {
-      console.log('error');
       throw new HttpException(
         { message: 'sub-task is already fulfilled cant be pending' },
         400,
       );
     }
     if (isPending) {
-      console.log('error');
       throw new HttpException({ message: 'already pending' }, 400);
     }
-    subtasks[taskIndex] = {
-      ...subtasks[taskIndex],
-      status: 'pending',
-    };
-    return subtasks[taskIndex];
-  }
-  updateToInprocessSubtask(id: number) {
-    const taskIndex = subtasks.findIndex((t) => t.sid === id);
-    if (taskIndex === -1) throw new NotFoundException('Task not found');
 
-    subtasks[taskIndex] = {
-      ...subtasks[taskIndex],
-      status: 'in process',
-    };
-    return subtasks[taskIndex];
+    subtask.status = 'pending';
+    return subtask.save();
   }
-  updateTocompletedSubtask(id: number) {
-    const taskIndex = subtasks.findIndex((t) => t.sid === id);
-    if (taskIndex === -1) throw new NotFoundException('Task not found');
-    let isPending = subtasks[taskIndex].status === 'pending' ? true : false;
+
+  async updateToInprocessSubtask(sid: number) {
+    const subtask = await this.subTaskModel.findOne({ sid });
+    if (!subtask) throw new NotFoundException('Task not found');
+    const isInProcess = subtask.status === 'in process';
+
+    if (isInProcess) {
+      throw new HttpException(
+        {
+          message:
+            'sub task is already in-process you can mark this sub task as completed',
+        },
+        400,
+      );
+    }
+
+    subtask.status = 'in process';
+    return subtask.save();
+  }
+
+  async updateTocompletedSubtask(sid: number) {
+    const subtask = await this.subTaskModel.findOne({ sid });
+    if (!subtask) throw new NotFoundException('Task not found');
+
+    const isPending = subtask.status === 'pending';
+    const isFulfilled = subtask.status === 'completed';
     if (isPending) {
       throw new HttpException(
         { message: 'can not go fulfilled go to in process subtasks' },
         400,
       );
     }
-    subtasks[taskIndex] = {
-      ...subtasks[taskIndex],
-      status: 'completed',
-    };
-    return subtasks[taskIndex];
+
+    if (isFulfilled) {
+      throw new HttpException({ message: 'sub task already completed' }, 400);
+    }
+
+    subtask.status = 'completed';
+    return subtask.save();
   }
 }

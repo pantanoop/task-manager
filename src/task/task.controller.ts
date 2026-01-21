@@ -6,44 +6,27 @@ import {
   Patch,
   Param,
   Delete,
-  Res,
-  HttpStatus,
+  Query,
 } from '@nestjs/common';
 import { TaskService } from './task.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
-import type { Response } from 'express';
+import { TaskQueryDto } from './dto/task-query.dto';
 
 @Controller('tasks')
 export class TaskController {
   constructor(private readonly taskService: TaskService) {}
 
-  // @Post()
-  // create(@Body() createTaskDto: CreateTaskDto, @Res() res: Response) {
-  //   try {
-  //     console.log(createTaskDto);
-  //     const response = this.taskService.create(createTaskDto);
-  //     res.status(HttpStatus.OK).json({
-  //       message: response,
-  //     });
-  //     return response;
-  //   } catch (error) {
-  //     console.log(error);
-  //     res.status(HttpStatus.BAD_REQUEST).json({
-  //       message: error.message,
-  //     });
-  //   }
-  // }
-
   @Post()
   create(@Body() createTaskDto: CreateTaskDto) {
-    // console.log(createTaskDto, 'hitted controller');
     return this.taskService.create(createTaskDto);
   }
 
   @Get()
-  findAll() {
-    return this.taskService.findAll();
+  findAll(@Query() query: TaskQueryDto) {
+    const limit = query.limit ? Number(query.limit) : undefined;
+    const page = query.page ? Number(query.page) : 1;
+    return this.taskService.findAll({ limit, page });
   }
 
   @Get(':id')
@@ -51,38 +34,43 @@ export class TaskController {
     return this.taskService.findOne(+id);
   }
 
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto) {
+    return this.taskService.update(+id, updateTaskDto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.taskService.remove(+id);
+  }
+
   @Patch(':id/mark-in-pending')
   updateTopending(@Param('id') id: string) {
     return this.taskService.updateTopending(+id);
   }
-  @Patch(':id/mark-completed')
-  updateTocompleted(@Param('id') id: string) {
-    return this.taskService.updateTocompleted(+id);
-  }
+
   @Patch(':id/mark-in-process')
   updateToInprocess(@Param('id') id: string) {
     return this.taskService.updateToInprocess(+id);
+  }
+
+  @Patch(':id/mark-completed')
+  updateTocompleted(@Param('id') id: string) {
+    return this.taskService.updateTocompleted(+id);
   }
 
   @Patch('/subtask/:id/mark-in-pending')
   updateTopendingSubtask(@Param('id') id: string) {
     return this.taskService.updateTopendingSubtask(+id);
   }
+
+  @Patch('/subtask/:id/mark-in-process')
+  updateToInprocessSubtask(@Param('id') id: string) {
+    return this.taskService.updateToInprocessSubtask(+id);
+  }
+
   @Patch('/subtask/:id/mark-completed')
   updateTocompletedSubtask(@Param('id') id: string) {
     return this.taskService.updateTocompletedSubtask(+id);
-  }
-  @Patch('/subtask/:id/mark-in-process')
-  updateToInprocessSubtask(@Param('id') id: number) {
-    return this.taskService.updateToInprocessSubtask(+id);
-  }
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto) {
-    console.log(updateTaskDto);
-    return this.taskService.update(+id, updateTaskDto);
-  }
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.taskService.remove(+id);
   }
 }

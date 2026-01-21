@@ -1,0 +1,23 @@
+services:
+  api:
+    build: .
+    container_name: task-manager-api
+    ports:
+      - '3000:3000'
+    environment:
+      MONGO_URI: mongodb://mongo:27017/task-manager
+    depends_on:
+      - mongo
+    restart: always
+
+  mongo:
+    image: mongo:7
+    container_name: task-manager-mongo
+    ports:
+      - '27018:27017'
+    volumes:
+      - mongo_data:/data/db
+    restart: always
+
+volumes:
+  mongo_data:
